@@ -103,11 +103,16 @@ listen(Opts) ->
             gen_tcp:listen(Port, ?LISTEN_OPTS(Addr));
         LSock ->
             Addr = proplists:get_value(addr, Opts, default_addr()),
-            case inet:setopts(LSock, ?LISTEN_OPTS(Addr)) of
-                ok ->
-                    {ok, LSock};
-                Error ->
-                    Error
+            case proplists:get_value(setopts, Opts, true) of
+                true ->
+                    case inet:setopts(LSock, ?LISTEN_OPTS(Addr)) of
+                        ok ->
+                            {ok, LSock};
+                        Error ->
+                            Error
+                    end;
+                false ->
+                    {ok, LSock}
             end
     end.
 

@@ -203,7 +203,7 @@ outbind(SrvRef, Addr, Opts, Params, Timeout) ->
     Pid = ref_to_pid(SrvRef),
     case proplists:get_value(sock, Opts) of
         undefined -> ok;
-        Sock      -> ok = gen_tcp:controlling_process(Sock, Pid)
+        Sock      -> ok = smpp_session:controlling_process(Sock, Pid)
     end,
     gen_server:call(Pid, {outbind, [{addr, Addr} | Opts], Params}, Timeout).
 
@@ -290,7 +290,7 @@ init({Mod, Args, Opts}) ->
         {ok, LSock} ->
             {ok, Log} = smpp_log_mgr:start_link(),
             Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
-            SessionOpts = [{log, Log}, {lsock, LSock}, {timers, Timers}],
+            SessionOpts = [{log, Log}, {lsock, LSock}, {timers, Timers}, {transport, smpp_session:transport(gen_mc)}],
             % Start a listening session
             {ok, Pid} = gen_mc_session:start_link(?MODULE, SessionOpts),
             St = #st{mod = Mod,
@@ -308,7 +308,7 @@ terminate(Reason, St) ->
     (St#st.mod):terminate(Reason, St#st.mod_st),
     gen_mc_session:stop(St#st.listener, Reason),
     lists:foreach(fun(X) -> session_stop(Reason, X) end, St#st.sessions),
-    gen_tcp:close(St#st.lsock),
+    smpp_session:close(St#st.lsock),
     smpp_log_mgr:stop(St#st.log).
 
 %%%-----------------------------------------------------------------------------
@@ -332,7 +332,7 @@ handle_call({{{CmdName, Params} = Req, Args}, Pid}, _From, St) ->
             {stop, ok, Reason, NewSt}
     end;
 handle_call({outbind, Opts, Params}, _From, St) ->
-    case gen_mc_session:start_link(?MODULE, [{log, St#st.log} | Opts]) of
+    case gen_mc_session:start_link(?MODULE, [{log, St#st.log}, {transport, smpp_session:transport(gen_mc_outbind)} | Opts]) of
         {ok, Pid} ->
             _Ref = erlang:monitor(process, Pid),
             unlink(Pid),
@@ -361,7 +361,7 @@ handle_call({rps_max, Pid}, _From, St) ->
 handle_call({{handle_unbind, Pdu}, Pid}, From, St) ->
     pack((St#st.mod):handle_unbind(Pid, Pdu, From, St#st.mod_st), St);
 handle_call({{handle_accept, Addr}, Pid}, From, #st{listener = Pid} = St) ->
-    Opts = [{lsock, St#st.lsock}, {log, St#st.log}, {timers, St#st.timers}],
+    Opts = [{lsock, St#st.lsock}, {log, St#st.log}, {timers, St#st.timers}, {transport, smpp_session:transport(gen_mc_accept)}],
     {ok, Listener} = gen_mc_session:start_link(?MODULE, Opts),
     NewSt = St#st{listener = Listener},
     pack((NewSt#st.mod):handle_accept(Pid, Addr, From, NewSt#st.mod_st), NewSt);
@@ -574,6 +574,8 @@ split_options([{timers, _} = H | T], Mc, Srv) ->
 split_options([{lsock, _} = H | T], Mc, Srv) ->
     split_options(T, [H | Mc], Srv);
 split_options([{setopts, _} = H | T], Mc, Srv) ->
+    split_options(T, [H | Mc], Srv);
+split_options([{ssl, _} = H | T], Mc, Srv) ->
     split_options(T, [H | Mc], Srv);
 split_options([H | T], Mc, Srv) ->
     split_options(T, Mc, [H | Srv]).

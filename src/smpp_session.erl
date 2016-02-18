@@ -35,10 +35,17 @@
 -export([congestion/3, connect/1, listen/1, tcp_send/2, send_pdu/3]).
 
 %%% SOCKET LISTENER FUNCTIONS EXPORTS
--export([wait_accept/3, wait_recv/3, recv_loop/4]).
+-export([transport/1, set_transport/2, spawn_link/3, wait_accept/3, wait_recv/3, recv_loop/4]).
 
 %% TIMER EXPORTS
 -export([cancel_timer/1, start_timer/2]).
+
+%% SOCKET OPERATIONS
+-export([accept/1]).
+-export([peername/1]).
+-export([setopts/2]).
+-export([close/1]).
+-export([controlling_process/2]).
 
 %%% MACROS
 -define(CONNECT_OPTS(Ip),
@@ -84,11 +91,9 @@ connect(Opts) ->
     Ip = proplists:get_value(ip, Opts),
     case proplists:get_value(sock, Opts, undefined) of
         undefined ->
-            Addr = proplists:get_value(addr, Opts),
-            Port = proplists:get_value(port, Opts, ?DEFAULT_SMPP_PORT),
-            gen_tcp:connect(Addr, Port, ?CONNECT_OPTS(Ip), ?CONNECT_TIME);
+            do_connect(Opts);
         Sock ->
-            case inet:setopts(Sock, ?CONNECT_OPTS(Ip)) of
+            case setopts(Sock, ?CONNECT_OPTS(Ip)) of
                 ok    -> {ok, Sock};
                 Error -> Error
             end
@@ -98,14 +103,12 @@ connect(Opts) ->
 listen(Opts) ->
     case proplists:get_value(lsock, Opts, undefined) of
         undefined ->
-            Addr = proplists:get_value(addr, Opts, default_addr()),
-            Port = proplists:get_value(port, Opts, ?DEFAULT_SMPP_PORT),
-            gen_tcp:listen(Port, ?LISTEN_OPTS(Addr));
+            do_listen(Opts);
         LSock ->
             Addr = proplists:get_value(addr, Opts, default_addr()),
             case proplists:get_value(setopts, Opts, true) of
                 true ->
-                    case inet:setopts(LSock, ?LISTEN_OPTS(Addr)) of
+                    case setopts(LSock, ?LISTEN_OPTS(Addr)) of
                         ok ->
                             {ok, LSock};
                         Error ->
@@ -116,6 +119,94 @@ listen(Opts) ->
             end
     end.
 
+transport(_Tag) ->
+    T = get(oserl_transport),
+    %io:format("~p ~p got transport ~p~n", [self(), _Tag, T]),
+    T.
+
+set_transport(Transport, _Tag) -> 
+    %io:format("~p ~p putting transport ~p~n", [self(), _Tag, Transport]),
+    put(oserl_transport, Transport).
+
+spawn_link(M, F, A) ->
+    Transport = transport(spawn_link),
+    spawn_link(fun() ->
+                       set_transport(Transport, spawn_link),
+                       erlang:apply(M, F, A)
+               end).
+
+do_listen(Opts) ->
+    MoreOpts = case proplists:get_value(ssl, Opts) of
+        undefined -> [];
+        SslOpts -> 
+                       set_transport(oserl_ssl, listen),
+                       SslOpts
+    end,
+    Addr = proplists:get_value(addr, Opts, default_addr()),
+    Port = proplists:get_value(port, Opts, ?DEFAULT_SMPP_PORT),
+    case transport(listen) of
+        undefined ->
+            gen_tcp:listen(Port, ?LISTEN_OPTS(Addr));
+        Module ->
+            Module:listen(Port, MoreOpts ++ ?LISTEN_OPTS(Addr))
+    end.
+
+do_connect(Opts) ->
+    MoreOpts = case proplists:get_value(ssl, Opts) of
+        undefined -> [];
+        SslOpts -> 
+                       set_transport(oserl_ssl, connect),
+                       SslOpts
+    end,
+    Ip = proplists:get_value(ip, Opts),
+    Addr = proplists:get_value(addr, Opts),
+    Port = proplists:get_value(port, Opts, ?DEFAULT_SMPP_PORT),
+    case transport(connect) of
+        undefined ->
+            gen_tcp:connect(Addr, Port, ?CONNECT_OPTS(Ip), ?CONNECT_TIME);
+        Module ->
+            Module:connect(Addr, Port, MoreOpts ++ ?CONNECT_OPTS(Ip), ?CONNECT_TIME)
+    end.
+
+accept(Socket) ->
+    case transport(accept) of
+        undefined ->
+            gen_tcp:accept(Socket);
+        Module ->
+            Module:accept(Socket)
+    end.
+
+peername(Socket) ->
+    case transport(peername) of
+        undefined ->
+            inet:peername(Socket);
+        Module ->
+            Module:peername(Socket)
+    end.
+
+setopts(Socket, Opts) ->
+    case transport(setopts) of
+        undefined ->
+            inet:setopts(Socket, Opts);
+        Module ->
+            Module:setopts(Socket, Opts)
+    end.
+
+close(Socket) ->
+    case transport(close) of
+        undefined ->
+            gen_tcp:close(Socket);
+        Module ->
+            Module:close(Socket)
+    end.
+
+controlling_process(Socket, NewOwner) ->
+    case transport(controlling_process) of
+        undefined ->
+            gen_tcp:controlling_process(Socket, NewOwner);
+        Module ->
+            Module:controlling_process(Socket, NewOwner)
+    end.
 
 tcp_send(Sock, Data) when is_port(Sock) ->
     try erlang:port_command(Sock, Data) of
@@ -139,7 +230,7 @@ send_pdu(Sock, Pdu, Log) ->
         {ok, BinPdu} ->
             send_pdu(Sock, BinPdu, Log);
         {error, _CmdId, Status, _SeqNum} ->
-            gen_tcp:close(Sock),
+            close(Sock),
             exit({command_status, Status})
     end.
 
@@ -147,13 +238,13 @@ send_pdu(Sock, Pdu, Log) ->
 %%% SOCKET LISTENER FUNCTIONS
 %%%-----------------------------------------------------------------------------
 wait_accept(Pid, LSock, Log) ->
-    case gen_tcp:accept(LSock) of
+    case accept(LSock) of
         {ok, Sock} ->
             case handle_accept(Pid, Sock) of
                 true ->
                     ?MODULE:recv_loop(Pid, Sock, <<>>, Log);
                 false ->
-                    gen_tcp:close(Sock),
+                    close(Sock),
                     ?MODULE:wait_accept(Pid, LSock, Log)
             end;
         {error, Reason} ->
@@ -167,7 +258,7 @@ wait_recv(Pid, Sock, Log) ->
 
 recv_loop(Pid, Sock, Buffer, Log) ->
     Timestamp = now(),
-    inet:setopts(Sock, [{active, once}]),
+    setopts(Sock, [{active, once}]),
     receive
         {tcp, Sock, Input} ->
             L = timer:now_diff(now(), Timestamp),
@@ -219,7 +310,7 @@ default_addr() ->
 
 
 handle_accept(Pid, Sock) ->
-    case inet:peername(Sock) of
+    case peername(Sock) of
         {ok, {Addr, _Port}} ->
             gen_fsm:sync_send_event(Pid, {accept, Sock, Addr});
         {error, _Reason} ->  % Most probably the socket is closed

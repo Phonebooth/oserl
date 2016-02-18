@@ -19,7 +19,9 @@
         smpp_session,
         smpp_sm,
         smpp_tty_log_hlr,
-        gsm0338
+        gsm0338,
+        oserl_ssl,
+        oserl_tcp
     ]},
     {registered, []},
     {applications, [kernel, stdlib, common_lib]},

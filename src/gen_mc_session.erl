@@ -160,6 +160,7 @@ init([Mod, Mc, Opts]) ->
     _Ref = erlang:monitor(process, Mc),
     Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
     Log = proplists:get_value(log, Opts),
+    smpp_session:set_transport(proplists:get_value(transport, Opts), gen_mc_session),
     case proplists:get_value(lsock, Opts) of
         undefined ->
             init_open(Mod, Mc, proplists:get_value(sock, Opts), Timers, Log);
@@ -170,7 +171,7 @@ init([Mod, Mc, Opts]) ->
 
 init_open(Mod, Mc, Sock, Tmr, Log) ->
     Self = self(),
-    Pid = spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
+    Pid = smpp_session:spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
     {ok, open, #st{mc = Mc,
                    mod = Mod,
                    log = Log,
@@ -187,7 +188,7 @@ init_open(Mod, Mc, Sock, Tmr, Log) ->
 
 init_listen(Mod, Mc, LSock, Tmr, Log) ->
     Self = self(),
-    Pid = spawn_link(smpp_session, wait_accept, [Self, LSock, Log]),
+    Pid = smpp_session:spawn_link(smpp_session, wait_accept, [Self, LSock, Log]),
     {ok, listen, #st{mc = Mc,
                      mod = Mod,
                      log = Log,
@@ -199,7 +200,7 @@ init_listen(Mod, Mc, LSock, Tmr, Log) ->
 
 terminate(_Reason, _Stn, Std) ->
     exit(Std#st.sock_ctrl, kill),
-    if Std#st.sock == undefined -> ok; true -> gen_tcp:close(Std#st.sock) end.
+    if Std#st.sock == undefined -> ok; true -> smpp_session:close(Std#st.sock) end.
 
 %%%-----------------------------------------------------------------------------
 %%% ASYNC REQUEST EXPORTS
@@ -320,7 +321,7 @@ listen({accept, Sock, Addr}, _From, St) ->
 
 
 open(activate, St) ->
-    ok = gen_tcp:controlling_process(St#st.sock, St#st.sock_ctrl),
+    ok = smpp_session:controlling_process(St#st.sock, St#st.sock_ctrl),
     St#st.sock_ctrl ! activate,
     {next_state, open, St};
 open({CmdId, _Pdu} = R, St)
@@ -494,10 +495,10 @@ handle_event(?COMMAND_ID_ENQUIRE_LINK, Stn, Std) ->
     NewStd = send_enquire_link(Std),
     {next_state, Stn, NewStd};
 handle_event({sock_error, _Reason}, unbound, Std) ->
-    gen_tcp:close(Std#st.sock),
+    smpp_session:close(Std#st.sock),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({sock_error, Reason}, _Stn, Std) ->
-    gen_tcp:close(Std#st.sock),
+    smpp_session:close(Std#st.sock),
     (Std#st.mod):handle_closed(Std#st.mc, Reason),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({listen_error, Reason}, _Stn, Std) ->
@@ -553,16 +554,16 @@ start_connect(Mod, Mc, Opts) ->
             Args = [Mod, Mc, [{sock, Sock} | Opts]],
             case gen_fsm:start_link(?MODULE, Args, []) of
                 {ok, Pid} ->
-                    case gen_tcp:controlling_process(Sock, Pid) of
+                    case smpp_session:controlling_process(Sock, Pid) of
                         ok ->
                             gen_fsm:send_event(Pid, activate),
                             {ok, Pid};
                         CtrlError ->
-                            gen_tcp:close(Sock),
+                            smpp_session:close(Sock),
                             CtrlError
                         end;
                 SessionError ->
-                    gen_tcp:close(Sock),
+                    smpp_session:close(Sock),
                     SessionError
                 end;
             ConnError ->

@@ -199,6 +199,7 @@ init([Mod, Esme, Opts]) ->
     _Ref = erlang:monitor(process, Esme),
     Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
     Log = proplists:get_value(log, Opts),
+    smpp_session:set_transport(proplists:get_value(transport, Opts), gen_esme_session),
     case proplists:get_value(lsock, Opts) of
         undefined ->
             init_open(Mod, Esme, proplists:get_value(sock, Opts), Timers, Log);
@@ -209,7 +210,7 @@ init([Mod, Esme, Opts]) ->
 
 init_open(Mod, Esme, Sock, Tmr, Log) ->
     Self = self(),
-    Pid = spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
+    Pid = smpp_session:spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
     {ok, open, #st{esme = Esme,
                    mod = Mod,
                    log = Log,
@@ -226,7 +227,7 @@ init_open(Mod, Esme, Sock, Tmr, Log) ->
 
 init_listen(Mod, Esme, LSock, Tmr, Log) ->
     Self = self(),
-    Pid = spawn_link(smpp_session, wait_accept, [Self, LSock, Log]),
+    Pid = smpp_session:spawn_link(smpp_session, wait_accept, [Self, LSock, Log]),
     {ok, listen, #st{esme = Esme,
                      mod = Mod,
                      log = Log,

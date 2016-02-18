@@ -195,7 +195,7 @@ listen(SrvRef, Opts) ->
     Pid = ref_to_pid(SrvRef),
     case smpp_session:listen(Opts) of
         {ok, LSock} ->
-            ok = gen_tcp:controlling_process(LSock, Pid),
+            ok = smpp_session:controlling_process(LSock, Pid),
             Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
             ListenOpts = [{lsock, LSock}, {timers, Timers}],
             gen_server:call(Pid, {start_session, ListenOpts}, ?ASSERT_TIME);
@@ -208,7 +208,7 @@ open(SrvRef, Addr, Opts) ->
     Pid = ref_to_pid(SrvRef),
     case proplists:get_value(sock, Opts) of
         undefined -> ok;
-        Sock      -> ok = gen_tcp:controlling_process(Sock, Pid)
+        Sock      -> ok = smpp_session:controlling_process(Sock, Pid)
     end,
     gen_server:call(Pid, {start_session, [{addr, Addr} | Opts]}, ?ASSERT_TIME).
 
@@ -455,7 +455,7 @@ terminate(Reason, St) ->
 handle_call({call, Req}, From, St) ->
     pack((St#st.mod):handle_call(Req, From, St#st.mod_st), St);
 handle_call({start_session, Opts}, _From, St) ->
-    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log} | Opts]) of
+    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log}, {transport, smpp_session:transport(gen_esme)} | Opts]) of
         {ok, Pid} ->
             Ref = erlang:monitor(process, Pid),
             unlink(Pid),

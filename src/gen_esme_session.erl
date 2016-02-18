@@ -495,10 +495,10 @@ handle_event(?COMMAND_ID_ENQUIRE_LINK, Stn, Std) ->
     NewStd = send_enquire_link(Std),
     {next_state, Stn, NewStd};
 handle_event({sock_error, _Reason}, unbound, Std) ->
-    close(Std#st.sock),
+    smpp_session:close(Std#st.sock),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({sock_error, Reason}, _Stn, Std) ->
-    close(Std#st.sock),
+    smpp_session:close(Std#st.sock),
     (Std#st.mod):handle_closed(Std#st.esme, Reason),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({listen_error, Reason}, _Stn, Std) ->
@@ -556,11 +556,11 @@ start_connect(Mod, Esme, Opts) ->
                             gen_fsm:send_event(Pid, activate),
                             {ok, Pid};
                         CtrlError ->
-                            close(Sock),
+                            smpp_session:close(Sock),
                             CtrlError
                         end;
                 SessionError ->
-                    close(Sock),
+                    smpp_session:close(Sock),
                     SessionError
                 end;
             ConnError ->

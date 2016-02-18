@@ -8,6 +8,7 @@
 -export([setopts/2]).
 -export([close/1]).
 -export([controlling_process/2]).
+-export([port_command/2]).
 
 listen(Port, Opts) ->
 	ssl:listen(Port, Opts).
@@ -24,7 +25,7 @@ accept(LSocket, Timeout) ->
 	end.
 
 connect(Host, Port, Opts, Timeout) ->
-	gen_tcp:connect(Host, Port, Opts, Timeout).
+	ssl:connect(Host, Port, Opts, Timeout).
 
 peername(Socket) ->
 	ssl:peername(Socket).
@@ -36,7 +37,17 @@ close(Socket) ->
 	ssl:close(Socket).
 
 controlling_process(Socket, NewOwner) ->
-    gen_tcp:controlling_process(Socket, NewOwner).
+    ssl:controlling_process(Socket, NewOwner).
+
+port_command(Socket, Data) ->
+    case ssl:send(Socket, Data) of
+        ok ->
+            self() ! {inet_reply, Socket, ok},
+            true;
+        {error, Reason} ->
+            self() ! {inet_reply, Socket, Reason},
+            true
+    end.
 
 %% Internal.
 

@@ -35,7 +35,7 @@
 -export([congestion/3, connect/1, listen/1, tcp_send/2, send_pdu/3]).
 
 %%% SOCKET LISTENER FUNCTIONS EXPORTS
--export([transport/1, set_transport/2, spawn_link/3, wait_accept/3, wait_recv/3, recv_loop/4]).
+-export([transport/1, set_transport/2, spawn/3, spawn_link/3, wait_accept/3, wait_recv/3, recv_loop/4]).
 
 %% TIMER EXPORTS
 -export([cancel_timer/1, start_timer/2]).
@@ -128,6 +128,13 @@ set_transport(Transport, _Tag) ->
     %io:format("~p ~p putting transport ~p~n", [self(), _Tag, Transport]),
     put(oserl_transport, Transport).
 
+spawn(M, F, A) ->
+    Transport = transport(spawn),
+    spawn(fun() ->
+                  set_transport(Transport, spawn),
+                  erlang:apply(M, F, A)
+          end).
+
 spawn_link(M, F, A) ->
     Transport = transport(spawn_link),
     spawn_link(fun() ->
@@ -208,8 +215,16 @@ controlling_process(Socket, NewOwner) ->
             Module:controlling_process(Socket, NewOwner)
     end.
 
-tcp_send(Sock, Data) when is_port(Sock) ->
-    try erlang:port_command(Sock, Data) of
+do_port_command(Sock, Data) ->
+    case transport(port_command) of
+        undefined ->
+            erlang:port_command(Sock, Data);
+        Module ->
+            Module:port_command(Sock, Data)
+    end.
+
+tcp_send(Sock, Data) ->
+    try do_port_command(Sock, Data) of
         true -> ok
     catch
         error:_Error -> {error, einval}
@@ -267,6 +282,14 @@ recv_loop(Pid, Sock, Buffer, Log) ->
         {tcp_closed, Sock} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, closed});
         {tcp_error, Sock, Reason} ->
+            gen_fsm:send_all_state_event(Pid, {sock_error, Reason});
+        {ssl, Sock, Input} ->
+            L = timer:now_diff(now(), Timestamp),
+            B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
+            ?MODULE:recv_loop(Pid, Sock, B, Log);
+        {ssl_closed, Sock} ->
+            gen_fsm:send_all_state_event(Pid, {sock_error, closed});
+        {ssl_error, Sock, Reason} ->
             gen_fsm:send_all_state_event(Pid, {sock_error, Reason})
     end.
 

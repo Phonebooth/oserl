@@ -210,7 +210,7 @@ init([Mod, Esme, Opts]) ->
 
 init_open(Mod, Esme, Sock, Tmr, Log) ->
     Self = self(),
-    Pid = smpp_session:spawn_link(smpp_session, wait_recv, [Self, Sock, Log]),
+    Pid = smpp_session:spawn(smpp_session, wait_recv, [Self, Sock, Log]),
     {ok, open, #st{esme = Esme,
                    mod = Mod,
                    log = Log,
@@ -239,7 +239,7 @@ init_listen(Mod, Esme, LSock, Tmr, Log) ->
 
 terminate(_Reason, _Stn, Std) ->
     exit(Std#st.sock_ctrl, kill),
-    if Std#st.sock == undefined -> ok; true -> gen_tcp:close(Std#st.sock) end.
+    if Std#st.sock == undefined -> ok; true -> smpp_session:close(Std#st.sock) end.
 
 %%%-----------------------------------------------------------------------------
 %%% ASYNC REQUEST EXPORTS
@@ -332,7 +332,7 @@ listen({accept, Sock, Addr}, _From, St) ->
 
 
 open(activate, St) ->
-    ok = gen_tcp:controlling_process(St#st.sock, St#st.sock_ctrl),
+    ok = smpp_session:controlling_process(St#st.sock, St#st.sock_ctrl),
     St#st.sock_ctrl ! activate,
     {next_state, open, St};
 open({?COMMAND_ID_OUTBIND, _Pdu} = R, St) ->
@@ -495,10 +495,10 @@ handle_event(?COMMAND_ID_ENQUIRE_LINK, Stn, Std) ->
     NewStd = send_enquire_link(Std),
     {next_state, Stn, NewStd};
 handle_event({sock_error, _Reason}, unbound, Std) ->
-    gen_tcp:close(Std#st.sock),
+    close(Std#st.sock),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({sock_error, Reason}, _Stn, Std) ->
-    gen_tcp:close(Std#st.sock),
+    close(Std#st.sock),
     (Std#st.mod):handle_closed(Std#st.esme, Reason),
     {stop, normal, Std#st{sock = undefined}};
 handle_event({listen_error, Reason}, _Stn, Std) ->
@@ -548,19 +548,19 @@ code_change(_OldVsn, Stn, Std, _Extra) ->
 start_connect(Mod, Esme, Opts) ->
     case smpp_session:connect(Opts) of
         {ok, Sock} ->
-            Args = [Mod, Esme, [{sock, Sock} | Opts]],
+            Args = [Mod, Esme, [{sock, Sock}, {transport, smpp_session:transport(gen_esme_session)} | Opts]],
             case gen_fsm:start_link(?MODULE, Args, []) of
                 {ok, Pid} ->
-                    case gen_tcp:controlling_process(Sock, Pid) of
+                    case smpp_session:controlling_process(Sock, Pid) of
                         ok ->
                             gen_fsm:send_event(Pid, activate),
                             {ok, Pid};
                         CtrlError ->
-                            gen_tcp:close(Sock),
+                            close(Sock),
                             CtrlError
                         end;
                 SessionError ->
-                    gen_tcp:close(Sock),
+                    close(Sock),
                     SessionError
                 end;
             ConnError ->

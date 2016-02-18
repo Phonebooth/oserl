@@ -125,7 +125,7 @@
 -define(SECOND, 1000).
 
 %%% RECORDS
--record(st, {mod, mod_st, ref, session, consumer, rps, log}).
+-record(st, {mod, mod_st, ref, session, consumer, rps, log, ssl}).
 
 %%%-----------------------------------------------------------------------------
 %%% BEHAVIOUR EXPORTS
@@ -442,7 +442,7 @@ init({Mod, Args, Opts}) ->
                              cl_queue_srv:start_link(File)
                      end,
     true = cl_queue_tab:insert(QueueSrv),
-    St = #st{mod = Mod, rps = proplists:get_value(rps, Opts, ?RPS), log = Log},
+    St = #st{mod = Mod, rps = proplists:get_value(rps, Opts, ?RPS), log = Log, ssl = proplists:get_value(ssl, Opts)},
     pack((St#st.mod):init(Args), St).
 
 
@@ -454,8 +454,8 @@ terminate(Reason, St) ->
 %%%-----------------------------------------------------------------------------
 handle_call({call, Req}, From, St) ->
     pack((St#st.mod):handle_call(Req, From, St#st.mod_st), St);
-handle_call({start_session, Opts}, _From, St) ->
-    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log}, {transport, smpp_session:transport(gen_esme)} | Opts]) of
+handle_call({start_session, Opts}, _From, St=#st{ssl=Ssl}) ->
+    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log}, {ssl, Ssl} | Opts]) of
         {ok, Pid} ->
             Ref = erlang:monitor(process, Pid),
             unlink(Pid),
@@ -695,6 +695,12 @@ split_options([], Esme, Srv) ->
 split_options([{rps, _} = H | T], Esme, Srv) ->
     split_options(T, [H | Esme], Srv);
 split_options([{file_queue, _} = H | T], Esme, Srv) ->
+    split_options(T, [H | Esme], Srv);
+split_options([{lsock, _} = H | T], Esme, Srv) ->
+    split_options(T, [H | Esme], Srv);
+split_options([{setopts, _} = H | T], Esme, Srv) ->
+    split_options(T, [H | Esme], Srv);
+split_options([{ssl, _} = H | T], Esme, Srv) ->
     split_options(T, [H | Esme], Srv);
 split_options([H | T], Esme, Srv) ->
     split_options(T, Esme, [H | Srv]).

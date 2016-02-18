@@ -8,6 +8,7 @@
 -export([setopts/2]).
 -export([close/1]).
 -export([controlling_process/2]).
+-export([port_command/2]).
 
 listen(Port, Opts) ->
 	gen_tcp:listen(Port, Opts).
@@ -32,3 +33,6 @@ close(Socket) ->
 
 controlling_process(Socket, NewOwner) ->
     gen_tcp:controlling_process(Socket, NewOwner).
+
+port_command(Socket, Data) ->
+    erlang:port_command(Socket, Data).

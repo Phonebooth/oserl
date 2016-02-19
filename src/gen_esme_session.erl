@@ -199,12 +199,12 @@ init([Mod, Esme, Opts]) ->
     _Ref = erlang:monitor(process, Esme),
     Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
     Log = proplists:get_value(log, Opts),
-    smpp_session:set_transport(proplists:get_value(transport, Opts), gen_esme_session),
     case proplists:get_value(lsock, Opts) of
         undefined ->
+            smpp_session:set_transport(proplists:get_value(transport, Opts), gen_esme_session),
             init_open(Mod, Esme, proplists:get_value(sock, Opts), Timers, Log);
         LSock ->
-            init_listen(Mod, Esme, LSock, Timers, Log)
+            init_listen(Mod, Esme, LSock, Timers, Log, proplists:get_value(ssl, Opts))
     end.
 
 
@@ -225,7 +225,10 @@ init_open(Mod, Esme, Sock, Tmr, Log) ->
                        smpp_session:start_timer(Tmr, enquire_link_timer)}}.
 
 
-init_listen(Mod, Esme, LSock, Tmr, Log) ->
+init_listen(Mod, Esme, LSock, Tmr, Log, Ssl) ->
+    case Ssl of undefined -> ok;
+                _ -> smpp_session:set_transport(oserl_ssl, gen_esme_session_listen)
+    end,
     Self = self(),
     Pid = smpp_session:spawn(smpp_session, wait_accept, [Self, LSock, Log]),
     {ok, listen, #st{esme = Esme,

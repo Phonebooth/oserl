@@ -197,7 +197,7 @@ listen(SrvRef, Opts) ->
         {ok, LSock} ->
             ok = smpp_session:controlling_process(LSock, Pid),
             Timers = proplists:get_value(timers, Opts, ?DEFAULT_TIMERS_SMPP),
-            ListenOpts = [{lsock, LSock}, {timers, Timers}],
+            ListenOpts = [{lsock, LSock}, {timers, Timers}, {ssl, proplists:get_value(ssl, Opts)}],
             gen_server:call(Pid, {start_session, ListenOpts}, ?ASSERT_TIME);
         Error ->
             Error
@@ -455,7 +455,11 @@ terminate(Reason, St) ->
 handle_call({call, Req}, From, St) ->
     pack((St#st.mod):handle_call(Req, From, St#st.mod_st), St);
 handle_call({start_session, Opts}, _From, St=#st{ssl=Ssl}) ->
-    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log}, {ssl, Ssl} | Opts]) of
+    Ssl2 = case proplists:get_value(ssl, Opts) of
+               undefined -> Ssl;
+               NewSsl -> NewSsl
+           end,
+    case gen_esme_session:start_link(?MODULE,  [{log, St#st.log}, {ssl, Ssl2} | Opts]) of
         {ok, Pid} ->
             Ref = erlang:monitor(process, Pid),
             unlink(Pid),

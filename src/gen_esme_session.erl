@@ -237,6 +237,7 @@ init_listen(Mod, Esme, LSock, Tmr, Log) ->
 
 
 terminate(_Reason, _Stn, Std) ->
+    unlink(Std#st.sock_ctrl),
     exit(Std#st.sock_ctrl, kill),
     if Std#st.sock == undefined -> ok; true -> gen_tcp:close(Std#st.sock) end.
 

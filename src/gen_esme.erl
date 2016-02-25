@@ -42,6 +42,8 @@
 %%% SERVER EXPORTS
 -export([call/2, call/3, cast/2, reply/2]).
 
+-export([session/1]).
+
 %%% CONNECT EXPORTS
 -export([listen/2, open/3, close/1]).
 
@@ -187,6 +189,28 @@ cast(SrvRef, Req) ->
 
 reply(Client, Reply) ->
     gen_server:reply(Client, Reply).
+
+session(SrvRef) ->
+    case sys:get_status(SrvRef) of
+        {status, _Pid, _Module, [_PDict, _SysState, _Parent, _Dbg, Misc]} ->
+            case proplists:get_all_values(data, Misc) of
+                DataLists = [[_|_]|_] ->
+                    DataList = lists:flatten(DataLists),
+                    case proplists:get_value("State", DataList) of
+                        #st{session=Session} when is_pid(Session) ->
+                            {ok, Session};
+                        #st{} ->
+                            {error, no_session};
+                        _ ->
+                            {error, no_state}
+                    end;
+                _ ->
+                    {error, no_data}
+            end;
+        _ ->
+            {error, status_failure}
+    end.
+
 
 %%%-----------------------------------------------------------------------------
 %%% CONNECT EXPORTS
@@ -583,9 +607,17 @@ handle_enquire_link(SrvRef, Pdu) ->
 
 handle_operation(SrvRef, {data_sm, Pdu}) ->
     gen_server:call(SrvRef, {handle_data_sm, Pdu}, ?ASSERT_TIME);
-handle_operation(_SrvRef, {deliver_sm, Pdu}) ->
-    %gen_server:call(SrvRef, {handle_deliver_sm, Pdu}, ?ASSERT_TIME).
-    imessage_esme:handle_deliver_sm_direct(Pdu).
+handle_operation(SrvRef, {deliver_sm, Pdu}) ->
+    case application:get_env(oserl, deliver_sm_direct) of
+        undefined ->
+            % Deprecated. For backward compatibility, the default must be
+            % the imessage path.
+            imessage_esme:handle_deliver_sm_direct(Pdu);
+        {ok, {M, F}} ->
+            M:F(Pdu);
+        {ok, false} ->
+            gen_server:call(SrvRef, {handle_deliver_sm, Pdu}, ?ASSERT_TIME)
+    end.
 
 
 handle_outbind(SrvRef, Pdu) ->

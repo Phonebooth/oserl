@@ -31,6 +31,7 @@
 
 %%% INCLUDE FILES
 -include_lib("oserl/include/oserl.hrl").
+-include_lib("pb2utils/include/pb2utils.hrl").
 
 %%% EXPORTS
 -export([count/3, match/3, match/4]).
@@ -141,7 +142,7 @@ handle_call(Req, St) ->
 handle_event({pdu, Pdu}, St) ->
     case catch (St#st.filter)(Pdu) of
         true ->
-            disk_log:alog(St#st.name, {now(), (St#st.format)(Pdu)});
+            disk_log:alog(St#st.name, {?NOW(), (St#st.format)(Pdu)});
         _Otherwise ->
             ok
     end,

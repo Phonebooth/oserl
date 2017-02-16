@@ -30,6 +30,7 @@
 
 %%% INCLUDE FILES
 -include_lib("oserl/include/oserl.hrl").
+-include_lib("pb2utils/include/pb2utils.hrl").
 
 %%% EXTERNAL EXPORTS
 -export([congestion/3, connect/1, listen/1, tcp_send/2, send_pdu/3]).
@@ -70,7 +71,7 @@
 %% instant congestion state value is calculated.  Notice this value cannot be
 %% greater than 99.
 congestion(CongestionSt, WaitTime, Timestamp) ->
-    case (timer:now_diff(now(), Timestamp) div (WaitTime + 1)) * 85 of
+    case (timer:now_diff(?NOW(), Timestamp) div (WaitTime + 1)) * 85 of
         Val when Val < 1 ->
             0;
         Val when Val > 99 ->  % Out of bounds
@@ -166,11 +167,11 @@ wait_recv(Pid, Sock, Log) ->
 
 
 recv_loop(Pid, Sock, Buffer, Log) ->
-    Timestamp = now(),
+    Timestamp = ?NOW(),
     inet:setopts(Sock, [{active, once}]),
     receive
         {tcp, Sock, Input} ->
-            L = timer:now_diff(now(), Timestamp),
+            L = timer:now_diff(?NOW(), Timestamp),
             B = handle_input(Pid, list_to_binary([Buffer, Input]), L, 1, Log),
             ?MODULE:recv_loop(Pid, Sock, B, Log);
         {tcp_closed, Sock} ->
@@ -228,7 +229,7 @@ handle_accept(Pid, Sock) ->
 
 
 handle_input(Pid, <<CmdLen:32, Rest/binary>> = Buffer, Lapse, N, Log) ->
-    Now = now(), % PDU received.  PDU handling starts now!
+    Now = ?NOW(), % PDU received.  PDU handling starts now!
     Len = CmdLen - 4,
     case Rest of
         <<PduRest:Len/binary-unit:8, NextPdus/binary>> ->

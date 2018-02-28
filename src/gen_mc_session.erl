@@ -64,6 +64,8 @@
 %%% CODE UPDATE EXPORTS
 -export([code_change/4]).
 
+-compile([nowarn_deprecated_function]).
+
 %%% MACROS
 -define(BOUND(B),
         if

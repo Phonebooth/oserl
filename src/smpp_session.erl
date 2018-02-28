@@ -40,6 +40,8 @@
 %% TIMER EXPORTS
 -export([cancel_timer/1, start_timer/2]).
 
+-compile([nowarn_deprecated_function]).
+
 %%% MACROS
 -define(CONNECT_OPTS(Ip),
         case Ip of
